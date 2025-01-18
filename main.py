@@ -1,332 +1,264 @@
-import random
 import pgzrun
 from pygame import Rect
+import random
 import math
 
-try:
-    import noise
-except ImportError:
-    print("O módulo 'noise' não está instalado. O terreno será gerado de forma mais simples.")
-    USE_NOISE = False
-else:
-    USE_NOISE = True
-
-# Dimensões da tela
+# Constants
+TITLE = "Tiny Town Survivor"
 WIDTH = 800
 HEIGHT = 600
-TILE_SIZE = 32
 
-# Variáveis globais
-game_time = 0
-is_game_running = False
-is_music_on = True
-game_scene = None
+# Game states
+MENU = 'menu'
+PLAYING = 'playing'
+GAME_OVER = 'game_over'
 
-# Configurações de geração procedural
-OCTAVES = 6
-PERSISTENCE = 0.5
-LACUNARITY = 2.0
+# Simplified animations for testing
+PLAYER_ANIMATIONS = {
+    'idle': ['character_idle1'],  # Simplificado para um frame
+    'walk': ['character_walk1'],  # Simplificado para um frame
+    'attack': ['character_attack1']  # Simplificado para um frame
+}
 
-# Primeiro definimos a classe base de animação
-class AnimatedSprite:
-    def __init__(self, base_name, idle_frames=2, walk_frames=3, attack_frames=3, jump_frames=2):
-        self.animations = {
-            'idle': [f"{base_name}_idle_{i}" for i in range(idle_frames)],
-            'walk': [f"{base_name}_walk_{i}" for i in range(walk_frames)],
-            'attack': [f"{base_name}_attack_{i}" for i in range(attack_frames)],
-            'jump': [f"{base_name}_jump_{i}" for i in range(jump_frames)]
-        }
+ENEMY_ANIMATIONS = {
+    'idle': ['enemy_idle1'],  # Simplificado para um frame
+    'walk': ['enemy_walk1']  # Simplificado para um frame
+}
+
+class GameObject:
+    def __init__(self, x, y, width, height):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.rect = Rect(x, y, width, height)
+        self.animation_frame = 0
+        self.animation_delay = 0.1
+        self.animation_timer = 0
         self.current_animation = 'idle'
-        self.frame = 0
-        self.animation_time = 0
-        self.animation_speed = 0.1
+        self.direction = 1
+        
+    def update_animation(self, dt):
+        self.animation_timer += dt
+        if self.animation_timer >= self.animation_delay:
+            self.animation_timer = 0
+            self.animation_frame = (self.animation_frame + 1) % len(self.get_animation_frames())
+            
+    def get_animation_frames(self):
+        return []
+        
+    def update_rect(self):
+        self.rect.x = self.x
+        self.rect.y = self.y
 
-    def update(self, dt):
-        self.animation_time += dt
-        if self.animation_time >= self.animation_speed:
-            self.animation_time = 0
-            self.frame = (self.frame + 1) % len(self.animations[self.current_animation])
-
-    def get_current_sprite(self):
-        return self.animations[self.current_animation][self.frame]
-
-# Depois definimos a classe Player que usa AnimatedSprite
-class Player:
-    def __init__(self, pos):
-        self.pos = pos
-        self.velocity = [0, 0]
-        self.rect = Rect(pos[0], pos[1], 40, 60)
-        self.sprite = AnimatedSprite('player')
-        self.is_attacking = False
-        self.is_jumping = False
-        self.facing_right = True
+class Player(GameObject):
+    def __init__(self, x, y):
+        super().__init__(x, y, 32, 32)
+        self.speed = 200
         self.health = 100
-        self.attack_cooldown = 0
-        self.jump_power = -300
-        self.can_jump = True
-
-    def update(self, dt):
-        if self.attack_cooldown > 0:
-            self.attack_cooldown -= dt
-
-        if self.is_attacking and self.attack_cooldown <= 0:
-            self.sprite.current_animation = 'attack'
+        self.is_attacking = False
+        self.attack_timer = 0
+        self.attack_duration = 0.3
+        self.attack_cooldown = 0.5
+        self.attack_range = 50
+        
+    def get_animation_frames(self):
+        return PLAYER_ANIMATIONS[self.current_animation]
+        
+    def move(self, dx, dy, dt):
+        if not self.is_attacking:
+            self.x += dx * self.speed * dt
+            self.y += dy * self.speed * dt
+            self.update_rect()
+            
+            if dx != 0 or dy != 0:
+                self.current_animation = 'walk'
+                self.direction = 1 if dx > 0 else (-1 if dx < 0 else self.direction)
+            else:
+                self.current_animation = 'idle'
+    
+    def attack(self):
+        if not self.is_attacking and self.attack_timer <= 0:
+            self.is_attacking = True
+            self.attack_timer = self.attack_duration
+            self.current_animation = 'attack'
             try:
-                sounds.attack.play()
-            except:
-                pass
-            self.attack_cooldown = 0.5
-        elif self.is_jumping:
-            self.sprite.current_animation = 'jump'
-        elif abs(self.velocity[0]) > 0:
-            self.sprite.current_animation = 'walk'
-        else:
-            self.sprite.current_animation = 'idle'
-
-        self.velocity[1] += 500 * dt  # Gravidade
-        self.pos[0] += self.velocity[0] * dt
-        self.pos[1] += self.velocity[1] * dt
-
-        self.pos[0] = max(0, min(self.pos[0], WIDTH - self.rect.width))
-        if self.pos[1] > HEIGHT - self.rect.height:
-            self.pos[1] = HEIGHT - self.rect.height
-            self.velocity[1] = 0
-            self.can_jump = True
-            self.is_jumping = False
-
-        self.rect.x = self.pos[0]
-        self.rect.y = self.pos[1]
-        self.sprite.update(dt)
-
-    def jump(self):
-        if self.can_jump:
-            self.velocity[1] = self.jump_power
-            self.can_jump = False
-            self.is_jumping = True
-
-    def draw(self):
-        sprite = self.sprite.get_current_sprite()
-        if not self.facing_right:
-            screen.blit(sprite, (self.pos[0], self.pos[1]), angle=180, flipx=True)
-        else:
-            screen.blit(sprite, (self.pos[0], self.pos[1]))
-
-# Em seguida a classe Enemy que também usa AnimatedSprite
-class Enemy:
-    def __init__(self, pos, enemy_type='normal'):
-        self.pos = pos
-        self.velocity = [0, 0]
-        self.rect = Rect(pos[0], pos[1], 40, 60)
-        self.sprite = AnimatedSprite('enemy')
-        self.health = 50
-        self.behavior_timer = 0
-        self.behavior_duration = random.uniform(1, 3)
-        self.movement_speed = random.uniform(50, 150)
-        self.enemy_type = enemy_type
-        self.facing_right = True
-        self.is_jumping = False
-
-    def update(self, dt, player_pos):
-        self.behavior_timer += dt
-        if self.behavior_timer >= self.behavior_duration:
-            self.behavior_timer = 0
-            self.behavior_duration = random.uniform(1, 3)
-            self.choose_behavior(player_pos)
-
-        if self.enemy_type == 'normal':
-            self.normal_movement(dt)
-        elif self.enemy_type == 'chaser':
-            self.chase_movement(dt, player_pos)
-        elif self.enemy_type == 'flying':
-            self.flying_movement(dt)
-
-        if self.is_jumping:
-            self.sprite.current_animation = 'jump'
-        elif abs(self.velocity[0]) > 0:
-            self.sprite.current_animation = 'walk'
-        else:
-            self.sprite.current_animation = 'idle'
-
-        self.rect.x = self.pos[0]
-        self.rect.y = self.pos[1]
-        self.sprite.update(dt)
-
-        if self.pos[1] >= HEIGHT - self.rect.height:
-            self.is_jumping = False
-
-    def choose_behavior(self, player_pos):
-        if self.enemy_type == 'normal':
-            self.velocity[0] = random.choice([-1, 1]) * self.movement_speed
-            if random.random() < 0.2:
-                self.jump()
-        elif self.enemy_type == 'chaser':
-            self.velocity[0] = self.movement_speed if player_pos[0] > self.pos[0] else -self.movement_speed
-            if random.random() < 0.3:
-                self.jump()
-        elif self.enemy_type == 'flying':
-            self.velocity = [
-                random.uniform(-100, 100),
-                random.uniform(-100, 100)
-            ]
-
-    def jump(self):
-        if not self.is_jumping and self.pos[1] >= HEIGHT - self.rect.height:
-            self.velocity[1] = -300
-            self.is_jumping = True
-
-    def normal_movement(self, dt):
-        self.velocity[1] += 500 * dt
-        if self.pos[1] >= HEIGHT - self.rect.height:
-            self.pos[1] = HEIGHT - self.rect.height
-            self.velocity[1] = 0
-
-    def chase_movement(self, dt, player_pos):
-        self.normal_movement(dt)
-        self.facing_right = player_pos[0] > self.pos[0]
-
-    def flying_movement(self, dt):
-        self.pos[0] += math.sin(game_time) * 2
-        self.pos[1] += math.cos(game_time) * 2
-
-    def draw(self):
-        sprite = self.sprite.get_current_sprite()
-        if not self.facing_right:
-            screen.blit(sprite, (self.pos[0], self.pos[1]), angle=180, flipx=True)
-        else:
-            screen.blit(sprite, (self.pos[0], self.pos[1]))
-
-# Por último, a classe GameScene que usa Player e Enemy
-class GameScene:
-    def __init__(self):
-        self.reset_game()
-        self.generate_terrain()
-
-    def reset_game(self):
-        self.player = Player([WIDTH // 2, HEIGHT - 100])
-        self.enemies = []
-        self.score = 0
-        self.spawn_timer = 0
-        self.generate_enemies()
-        self.terrain_seed = random.randint(0, 1000)
-
-    def generate_terrain(self):
-        self.terrain = []
-        if USE_NOISE:
-            for x in range(WIDTH // TILE_SIZE):
-                height = int(
-                    noise.pnoise1(x * 0.1 + self.terrain_seed, 
-                                octaves=OCTAVES, 
-                                persistence=PERSISTENCE, 
-                                lacunarity=LACUNARITY) * 5 + 10
-                )
-                self.terrain.append(height)
-        else:
-            base_height = HEIGHT // TILE_SIZE - 4
-            for x in range(WIDTH // TILE_SIZE):
-                height = base_height + random.randint(-2, 2)
-                self.terrain.append(height)
-
-    def generate_enemies(self):
-        num_enemies = random.randint(3, 7)
-        enemy_types = ['normal', 'chaser', 'flying']
-        for _ in range(num_enemies):
-            enemy_type = random.choice(enemy_types)
-            x = random.randint(0, WIDTH - 40)
-            y = random.randint(HEIGHT // 2, HEIGHT - 100)
-            self.enemies.append(Enemy([x, y], enemy_type))
-
+                if game.sound_enabled:
+                    sounds.attack.play()
+            except AttributeError:
+                pass  # Ignora se o som não existir
+    
     def update(self, dt):
-        global game_time
-        game_time += dt
+        if self.is_attacking:
+            self.attack_timer -= dt
+            if self.attack_timer <= 0:
+                self.is_attacking = False
+                self.current_animation = 'idle'
+                self.attack_timer = self.attack_cooldown
+        elif self.attack_timer > 0:
+            self.attack_timer -= dt
 
-        self.player.update(dt)
-        self.spawn_timer += dt
+class Enemy(GameObject):
+    def __init__(self, x, y):
+        super().__init__(x, y, 32, 32)
+        self.speed = 100
+        self.patrol_radius = 100
+        self.start_x = x
+        self.start_y = y
+        self.patrol_angle = random.random() * math.pi * 2
+        self.health = 50
+        
+    def get_animation_frames(self):
+        return ENEMY_ANIMATIONS[self.current_animation]
+        
+    def update(self, dt, player):
+        self.patrol_angle += dt
+        self.x = self.start_x + math.cos(self.patrol_angle) * self.patrol_radius
+        self.y = self.start_y + math.sin(self.patrol_angle) * self.patrol_radius
+        
+        self.current_animation = 'walk'
+        self.direction = 1 if math.cos(self.patrol_angle) > 0 else -1
+        
+        self.update_rect()
+        self.update_animation(dt)
 
-        if self.spawn_timer >= 5:
-            self.spawn_timer = 0
-            if len(self.enemies) < 10:
-                enemy_type = random.choice(['normal', 'chaser', 'flying'])
-                x = random.randint(0, WIDTH - 40)
-                self.enemies.append(Enemy([x, 0], enemy_type))
-
-        for enemy in self.enemies[:]:
-            enemy.update(dt, self.player.pos)
-
-            if self.player.rect.colliderect(enemy.rect):
-                if self.player.is_attacking:
-                    self.enemies.remove(enemy)
-                    self.score += 10
-                else:
+class Game:
+    def __init__(self):
+        self.state = MENU
+        self.sound_enabled = True
+        self.player = Player(WIDTH // 2, HEIGHT // 2)
+        self.enemies = [
+            Enemy(random.randint(100, WIDTH-100), random.randint(100, HEIGHT-100))
+            for _ in range(5)
+        ]
+        self.buttons = {
+            'start': Rect(WIDTH//2 - 100, HEIGHT//2 - 50, 200, 40),
+            'sound': Rect(WIDTH//2 - 100, HEIGHT//2 + 10, 200, 40),
+            'exit': Rect(WIDTH//2 - 100, HEIGHT//2 + 70, 200, 40)
+        }
+        
+    def update(self, dt):
+        if self.state == PLAYING:
+            dx = dy = 0
+            if keyboard.left:
+                dx = -1
+            elif keyboard.right:
+                dx = 1
+            if keyboard.up:
+                dy = -1
+            elif keyboard.down:
+                dy = 1
+            
+            if keyboard.space:
+                self.player.attack()
+                
+            self.player.move(dx, dy, dt)
+            self.player.update(dt)
+            self.player.update_animation(dt)
+            
+            enemies_to_remove = []
+            for enemy in self.enemies:
+                enemy.update(dt, self.player)
+                
+                if (self.player.is_attacking and 
+                    enemy.rect.colliderect(Rect(
+                        self.player.x - self.player.attack_range * (1 - self.player.direction) // 2,
+                        self.player.y - self.player.attack_range // 2,
+                        self.player.attack_range,
+                        self.player.attack_range
+                    ))):
+                    enemy.health -= 25
+                    if enemy.health <= 0:
+                        enemies_to_remove.append(enemy)
+                
+                elif enemy.rect.colliderect(self.player.rect):
                     self.player.health -= 10
                     if self.player.health <= 0:
-                        self.reset_game()
+                        self.state = GAME_OVER
+                        try:
+                            if self.sound_enabled:
+                                sounds.game_over.play()
+                        except AttributeError:
+                            pass
+            
+            for enemy in enemies_to_remove:
+                self.enemies.remove(enemy)
 
     def draw(self):
-        screen.blit('sky', (0, 0))
-
-        for x in range(len(self.terrain)):
-            height = self.terrain[x]
-            for y in range(height):
-                screen.blit('grass', (x * TILE_SIZE, HEIGHT - (y + 1) * TILE_SIZE))
-
-        for i in range(0, WIDTH, TILE_SIZE * 4):
-            if random.random() < 0.3:
-                screen.blit('rock', (i, HEIGHT - TILE_SIZE * 2))
-
-        self.player.draw()
-        for enemy in self.enemies:
-            enemy.draw()
-
-        screen.draw.text(f"Score: {self.score}", topleft=(10, 10), color="white")
-        screen.draw.text(f"Health: {self.player.health}", topleft=(10, 40), color="white")
-
-# Funções de controle
-def draw_menu():
-    screen.fill((0, 0, 0))
-    screen.draw.text("Platformer Game", center=(WIDTH // 2, HEIGHT // 4), fontsize=60, color="white")
-    screen.draw.text("Press ENTER to Start", center=(WIDTH // 2, HEIGHT // 2), fontsize=40, color="white")
-    screen.draw.text("Controls:", center=(WIDTH // 2, HEIGHT * 3 // 4 - 40), fontsize=30, color="white")
-    screen.draw.text("Arrow Keys - Move", center=(WIDTH // 2, HEIGHT * 3 // 4), fontsize=30, color="white")
-    screen.draw.text("Z - Attack", center=(WIDTH // 2, HEIGHT * 3 // 4 + 30), fontsize=30, color="white")
-    screen.draw.text("Space - Jump", center=(WIDTH // 2, HEIGHT * 3 // 4 + 60), fontsize=30, color="white")
-
-def on_key_down(key):
-    global is_game_running
-    if key == keys.SPACE and is_game_running and game_scene.player.can_jump:
-        game_scene.player.jump()
-    elif key == keys.RETURN and not is_game_running:
-        is_game_running = True
-        try:
-            music.play("background")
-        except:
-            pass
-
-def on_key_up(key):
-    if key == keys.LEFT or key == keys.RIGHT and game_scene:
-        game_scene.player.velocity[0] = 0
+        screen.fill((50, 50, 50))  # Cor de fundo cinza escuro
+        
+        if self.state == MENU:
+            screen.draw.filled_rect(self.buttons['start'], (100, 100, 200))
+            screen.draw.filled_rect(self.buttons['sound'], (100, 100, 200))
+            screen.draw.filled_rect(self.buttons['exit'], (100, 100, 200))
+            
+            screen.draw.text("Start Game", center=(WIDTH//2, HEIGHT//2 - 30), color="white")
+            sound_text = "Sound: ON" if self.sound_enabled else "Sound: OFF"
+            screen.draw.text(sound_text, center=(WIDTH//2, HEIGHT//2 + 30), color="white")
+            screen.draw.text("Exit", center=(WIDTH//2, HEIGHT//2 + 90), color="white")
+            
+        elif self.state == PLAYING:
+            # Draw player (with direction handling)
+            try:
+                player_image = self.player.get_animation_frames()[self.player.animation_frame]
+                # Flip the sprite if facing left
+                if self.player.direction == -1:
+                    screen.blit(player_image, (self.player.x, self.player.y), flipx=True)
+                else:
+                    screen.blit(player_image, (self.player.x, self.player.y))
+            except:
+                screen.draw.filled_rect(Rect(self.player.x, self.player.y, 32, 32), (0, 255, 0))
+            
+            # Draw enemies (with direction handling)
+            for enemy in self.enemies:
+                try:
+                    enemy_image = enemy.get_animation_frames()[enemy.animation_frame]
+                    # Flip the sprite if facing left
+                    if enemy.direction == -1:
+                        screen.blit(enemy_image, (enemy.x, enemy.y), flipx=True)
+                    else:
+                        screen.blit(enemy_image, (enemy.x, enemy.y))
+                except:
+                    screen.draw.filled_rect(Rect(enemy.x, enemy.y, 32, 32), (255, 0, 0))
+                
+            # Draw health bar
+            health_rect = Rect(10, 10, self.player.health * 2, 20)
+            screen.draw.filled_rect(health_rect, (200, 0, 0))
+            
+        elif self.state == GAME_OVER:
+            screen.draw.text("GAME OVER", center=(WIDTH//2, HEIGHT//2), color="white")
+            screen.draw.text("Click to return to menu", center=(WIDTH//2, HEIGHT//2 + 40), color="white")
+            
+game = Game()
 
 def update(dt):
-    if is_game_running:
-        if keyboard.left:
-            game_scene.player.velocity[0] = -200
-            game_scene.player.facing_right = False
-        elif keyboard.right:
-            game_scene.player.velocity[0] = 200
-            game_scene.player.facing_right = True
-        
-        if keyboard.z:
-            game_scene.player.is_attacking = True
-        else:
-            game_scene.player.is_attacking = False
-
-        game_scene.update(dt)
+    game.update(dt)
 
 def draw():
-    if is_game_running:
-        game_scene.draw()
-    else:
-        draw_menu()
+    game.draw()
 
-# Inicialização
-game_scene = GameScene()
+def on_mouse_down(pos):
+    if game.state == MENU:
+        if game.buttons['start'].collidepoint(pos):
+            game.state = PLAYING
+            try:
+                if game.sound_enabled:
+                    music.play('background_music')
+            except:
+                pass
+        elif game.buttons['sound'].collidepoint(pos):
+            game.sound_enabled = not game.sound_enabled
+            try:
+                if game.sound_enabled:
+                    music.play('background_music')
+                else:
+                    music.stop()
+            except:
+                pass
+        elif game.buttons['exit'].collidepoint(pos):
+            quit()
+    elif game.state == GAME_OVER:
+        game.state = MENU
+        game.player.health = 100
+
 pgzrun.go()
