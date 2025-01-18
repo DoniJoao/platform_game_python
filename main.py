@@ -40,10 +40,6 @@ class AnimatedSprite:
         self.frame = 0
         self.animation_time = 0
         self.animation_speed = 0.1
-        # Criar um Actor para cada frame de animação
-        self.actors = {}
-        for anim_name, frames in self.animations.items():
-            self.actors[anim_name] = [Actor(frame_name) for frame_name in frames]
 
     def update(self, dt):
         self.animation_time += dt
@@ -51,101 +47,8 @@ class AnimatedSprite:
             self.animation_time = 0
             self.frame = (self.frame + 1) % len(self.animations[self.current_animation])
 
-    def get_current_actor(self):
-        return self.actors[self.current_animation][self.frame]
-
-class Enemy:
-    def __init__(self, pos, enemy_type='normal'):
-        self.pos = pos
-        self.velocity = [0, 0]
-        self.rect = Rect(pos[0], pos[1], 40, 60)
-        self.sprite = AnimatedSprite('enemy')
-        self.health = 50
-        self.behavior_timer = 0
-        self.behavior_duration = random.uniform(1, 3)
-        self.movement_speed = random.uniform(50, 150)
-        self.enemy_type = enemy_type
-        self.facing_right = True
-        self.is_jumping = False
-
-    def update(self, dt, player_pos):  # Este método precisa estar presente
-        self.behavior_timer += dt
-        if self.behavior_timer >= self.behavior_duration:
-            self.behavior_timer = 0
-            self.behavior_duration = random.uniform(1, 3)
-            self.choose_behavior(player_pos)
-
-        if self.enemy_type == 'normal':
-            self.normal_movement(dt)
-        elif self.enemy_type == 'chaser':
-            self.chase_movement(dt, player_pos)
-        elif self.enemy_type == 'flying':
-            self.flying_movement(dt)
-
-        if self.is_jumping:
-            self.sprite.current_animation = 'jump'
-        elif abs(self.velocity[0]) > 0:
-            self.sprite.current_animation = 'walk'
-        else:
-            self.sprite.current_animation = 'idle'
-
-        self.rect.x = self.pos[0]
-        self.rect.y = self.pos[1]
-        self.sprite.update(dt)
-
-        if self.pos[1] >= HEIGHT - self.rect.height:
-            self.is_jumping = False
-
-    def choose_behavior(self, player_pos):
-        if self.enemy_type == 'normal':
-            self.velocity[0] = random.choice([-1, 1]) * self.movement_speed
-            if random.random() < 0.2:
-                self.jump()
-        elif self.enemy_type == 'chaser':
-            self.velocity[0] = self.movement_speed if player_pos[0] > self.pos[0] else -self.movement_speed
-            if random.random() < 0.3:
-                self.jump()
-        elif self.enemy_type == 'flying':
-            self.velocity = [
-                random.uniform(-100, 100),
-                random.uniform(-100, 100)
-            ]
-
-    def jump(self):
-        if not self.is_jumping and self.pos[1] >= HEIGHT - self.rect.height:
-            self.velocity[1] = -300
-            self.is_jumping = True
-
-    def normal_movement(self, dt):
-        self.velocity[1] += 500 * dt
-        if self.pos[1] >= HEIGHT - self.rect.height:
-            self.pos[1] = HEIGHT - self.rect.height
-            self.velocity[1] = 0
-        
-        # Atualiza a posição com base na velocidade
-        self.pos[0] += self.velocity[0] * dt
-        self.pos[1] += self.velocity[1] * dt
-
-    def chase_movement(self, dt, player_pos):
-        self.normal_movement(dt)
-        self.facing_right = player_pos[0] > self.pos[0]
-
-    def flying_movement(self, dt):
-        self.pos[0] += math.sin(game_time) * 2
-        self.pos[1] += math.cos(game_time) * 2
-
-    def draw(self):
-        current_actor = self.sprite.get_current_actor()
-        current_actor.pos = (self.pos[0], self.pos[1])
-        
-        if not self.facing_right:
-            current_actor.angle = 180
-            current_actor.flip_x = True
-        else:
-            current_actor.angle = 0
-            current_actor.flip_x = False
-            
-        current_actor.draw()
+    def get_current_sprite(self):
+        return self.animations[self.current_animation][self.frame]
 
 # Depois definimos a classe Player que usa AnimatedSprite
 class Player:
@@ -202,22 +105,101 @@ class Player:
             self.is_jumping = True
 
     def draw(self):
-        current_actor = self.sprite.get_current_actor()
-        current_actor.pos = (self.pos[0], self.pos[1])
-        
+        sprite = self.sprite.get_current_sprite()
         if not self.facing_right:
-            current_actor.angle = 180
-            current_actor.flip_x = True
+            screen.blit(sprite, (self.pos[0], self.pos[1]), angle=180, flipx=True)
         else:
-            current_actor.angle = 0
-            current_actor.flip_x = False
-            
-        current_actor.draw()
+            screen.blit(sprite, (self.pos[0], self.pos[1]))
 
+# Em seguida a classe Enemy que também usa AnimatedSprite
+class Enemy:
+    def __init__(self, pos, enemy_type='normal'):
+        self.pos = pos
+        self.velocity = [0, 0]
+        self.rect = Rect(pos[0], pos[1], 40, 60)
+        self.sprite = AnimatedSprite('enemy')
+        self.health = 50
+        self.behavior_timer = 0
+        self.behavior_duration = random.uniform(1, 3)
+        self.movement_speed = random.uniform(50, 150)
+        self.enemy_type = enemy_type
+        self.facing_right = True
+        self.is_jumping = False
 
+    def update(self, dt, player_pos):
+        self.behavior_timer += dt
+        if self.behavior_timer >= self.behavior_duration:
+            self.behavior_timer = 0
+            self.behavior_duration = random.uniform(1, 3)
+            self.choose_behavior(player_pos)
+
+        if self.enemy_type == 'normal':
+            self.normal_movement(dt)
+        elif self.enemy_type == 'chaser':
+            self.chase_movement(dt, player_pos)
+        elif self.enemy_type == 'flying':
+            self.flying_movement(dt)
+
+        if self.is_jumping:
+            self.sprite.current_animation = 'jump'
+        elif abs(self.velocity[0]) > 0:
+            self.sprite.current_animation = 'walk'
+        else:
+            self.sprite.current_animation = 'idle'
+
+        self.rect.x = self.pos[0]
+        self.rect.y = self.pos[1]
+        self.sprite.update(dt)
+
+        if self.pos[1] >= HEIGHT - self.rect.height:
+            self.is_jumping = False
+
+    def choose_behavior(self, player_pos):
+        if self.enemy_type == 'normal':
+            self.velocity[0] = random.choice([-1, 1]) * self.movement_speed
+            if random.random() < 0.2:
+                self.jump()
+        elif self.enemy_type == 'chaser':
+            self.velocity[0] = self.movement_speed if player_pos[0] > self.pos[0] else -self.movement_speed
+            if random.random() < 0.3:
+                self.jump()
+        elif self.enemy_type == 'flying':
+            self.velocity = [
+                random.uniform(-100, 100),
+                random.uniform(-100, 100)
+            ]
+
+    def jump(self):
+        if not self.is_jumping and self.pos[1] >= HEIGHT - self.rect.height:
+            self.velocity[1] = -300
+            self.is_jumping = True
+
+    def normal_movement(self, dt):
+        self.velocity[1] += 500 * dt
+        if self.pos[1] >= HEIGHT - self.rect.height:
+            self.pos[1] = HEIGHT - self.rect.height
+            self.velocity[1] = 0
+
+    def chase_movement(self, dt, player_pos):
+        self.normal_movement(dt)
+        self.facing_right = player_pos[0] > self.pos[0]
+
+    def flying_movement(self, dt):
+        self.pos[0] += math.sin(game_time) * 2
+        self.pos[1] += math.cos(game_time) * 2
+
+    def draw(self):
+        sprite = self.sprite.get_current_sprite()
+        if not self.facing_right:
+            screen.blit(sprite, (self.pos[0], self.pos[1]), angle=180, flipx=True)
+        else:
+            screen.blit(sprite, (self.pos[0], self.pos[1]))
+
+# Por último, a classe GameScene que usa Player e Enemy
 class GameScene:
     def __init__(self):
         self.reset_game()
+        self.generate_terrain()
 
     def reset_game(self):
         self.player = Player([WIDTH // 2, HEIGHT - 100])
@@ -225,6 +207,24 @@ class GameScene:
         self.score = 0
         self.spawn_timer = 0
         self.generate_enemies()
+        self.terrain_seed = random.randint(0, 1000)
+
+    def generate_terrain(self):
+        self.terrain = []
+        if USE_NOISE:
+            for x in range(WIDTH // TILE_SIZE):
+                height = int(
+                    noise.pnoise1(x * 0.1 + self.terrain_seed, 
+                                octaves=OCTAVES, 
+                                persistence=PERSISTENCE, 
+                                lacunarity=LACUNARITY) * 5 + 10
+                )
+                self.terrain.append(height)
+        else:
+            base_height = HEIGHT // TILE_SIZE - 4
+            for x in range(WIDTH // TILE_SIZE):
+                height = base_height + random.randint(-2, 2)
+                self.terrain.append(height)
 
     def generate_enemies(self):
         num_enemies = random.randint(3, 7)
@@ -262,11 +262,16 @@ class GameScene:
                         self.reset_game()
 
     def draw(self):
-        # Desenha o céu
         screen.blit('sky', (0, 0))
-        
-        # Desenha o chão (uma linha simples)
-        screen.draw.filled_rect(Rect(0, HEIGHT - 20, WIDTH, 20), (100, 100, 100))
+
+        for x in range(len(self.terrain)):
+            height = self.terrain[x]
+            for y in range(height):
+                screen.blit('grass', (x * TILE_SIZE, HEIGHT - (y + 1) * TILE_SIZE))
+
+        for i in range(0, WIDTH, TILE_SIZE * 4):
+            if random.random() < 0.3:
+                screen.blit('rock', (i, HEIGHT - TILE_SIZE * 2))
 
         self.player.draw()
         for enemy in self.enemies:
